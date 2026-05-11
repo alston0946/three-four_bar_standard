@@ -1,143 +1,274 @@
-from __future__ import annotations
-
-import importlib.util
 import os
+import sys
 import traceback
-from datetime import datetime
+import importlib.util
 from pathlib import Path
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import pandas as pd
+from automation.send_email import send_email
 
-from send_email import send_email
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+# =========================
+# 仓库根目录
+# =========================
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# 输出目录
 OUTPUT_DIR = REPO_ROOT / "outputs"
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR.mkdir(exist_ok=True)
+
+# 数据目录
+DATA_DIR = REPO_ROOT / "data"
 
 
-def load_strategy_module(script_path: Path):
-    spec = importlib.util.spec_from_file_location("scan_strategy_module", script_path)
-    if spec is None or spec.loader is None:
+# =========================
+# 动态加载策略脚本
+# =========================
+def load_strategy_module(script_path: str):
+    script_path = Path(script_path)
+
+    if not script_path.exists():
         raise RuntimeError(f"无法加载策略脚本: {script_path}")
+
+    spec = importlib.util.spec_from_file_location(
+        "scan_strategy",
+        str(script_path)
+    )
+
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"无法创建模块 spec: {script_path}")
+
     mod = importlib.util.module_from_spec(spec)
+
+    sys.modules["scan_strategy"] = mod
+
     spec.loader.exec_module(mod)
+
     return mod
 
 
-def sg_today_str() -> str:
-    now_sg = datetime.now(ZoneInfo("Asia/Singapore"))
-    return now_sg.strftime("%Y%m%d")
+# =========================
+# 新加坡时间日期
+# =========================
+def get_sg_today():
+    sg_tz = ZoneInfo("Asia/Singapore")
+    now = datetime.now(sg_tz)
+    return now.strftime("%Y%m%d")
 
 
-def env_or_none(name: str):
-    v = os.environ.get(name)
-    return v if v not in (None, "") else None
+# =========================
+# 主函数
+# =========================
+def main():
 
+    # -------------------------
+    # 日期
+    # -------------------------
+    target_date = os.getenv("TARGET_DATE", get_sg_today())
 
-def maybe_set(mod, name: str, value):
-    if hasattr(mod, name) and value is not None:
-        setattr(mod, name, value)
+    # -------------------------
+    # 策略脚本路径
+    # -------------------------
+    script_name = os.getenv(
+        "SCAN_SCRIPT_PATH",
+        "scan_strategy.py"
+    )
 
+    script_path = REPO_ROOT / script_name
 
-def configure_strategy(mod, target_date: str) -> dict[str, Path]:
-    out_date_dir = OUTPUT_DIR / target_date
-    out_date_dir.mkdir(parents=True, exist_ok=True)
+    print("=" * 80)
+    print(f"仓库根目录: {REPO_ROOT}")
+    print(f"策略脚本路径: {script_path}")
+    print(f"目标日期: {target_date}")
+    print("=" * 80)
 
-    paths = {
-        "OUTPUT_FILE": out_date_dir / f"candidates_{target_date}.csv",
-        "DEBUG_FILE": out_date_dir / f"debug_{target_date}.csv",
-        "FAILED_FILE": out_date_dir / f"failed_{target_date}.csv",
-        "FILTERED_FILE": out_date_dir / f"filtered_{target_date}.csv",
-    }
+    # -------------------------
+    # 加载策略脚本
+    # -------------------------
+    mod = load_strategy_module(str(script_path))
 
-    maybe_set(mod, "TUSHARE_TOKEN", os.environ.get("TUSHARE_TOKEN"))
-    maybe_set(mod, "TARGET_DATES", [target_date])
-    maybe_set(mod, "END_DATE", target_date)
+    # -------------------------
+    # 注入环境变量
+    # -------------------------
+    setattr(mod, "TUSHARE_TOKEN", os.getenv("TUSHARE_TOKEN", ""))
 
-    maybe_set(mod, "OUTPUT_FILE", str(paths["OUTPUT_FILE"]))
-    maybe_set(mod, "DEBUG_FILE", str(paths["DEBUG_FILE"]))
-    maybe_set(mod, "FAILED_FILE", str(paths["FAILED_FILE"]))
-    maybe_set(mod, "FILTERED_FILE", str(paths["FILTERED_FILE"]))
+    setattr(mod, "TARGET_DATES", [target_date])
+    setattr(mod, "END_DATE", target_date)
 
-    maybe_set(mod, "CODE_FILE", env_or_none("CODE_FILE") or str(REPO_ROOT / "data" / "a_share_codes_for_akshare.csv"))
-    maybe_set(mod, "BELOW_8B_FILE", env_or_none("BELOW_8B_FILE") or str(REPO_ROOT / "data" / "a_share_below_8b.csv"))
-    maybe_set(mod, "ST_FILE", env_or_none("ST_FILE") or str(REPO_ROOT / "data" / "st_stocks.csv"))
+    # 数据文件
+    setattr(
+        mod,
+        "CODE_FILE",
+        str(DATA_DIR / "a_share_codes_for_akshare.csv")
+    )
 
-    maybe_set(mod, "START_DATE", env_or_none("START_DATE"))
-    if env_or_none("MAX_WORKERS"):
-        maybe_set(mod, "MAX_WORKERS", int(os.environ["MAX_WORKERS"]))
-    if env_or_none("BATCH_START"):
-        maybe_set(mod, "BATCH_START", int(os.environ["BATCH_START"]))
-    if env_or_none("BATCH_SIZE"):
-        maybe_set(mod, "BATCH_SIZE", int(os.environ["BATCH_SIZE"]))
-    if env_or_none("TEST_LIMIT"):
-        maybe_set(mod, "TEST_LIMIT", int(os.environ["TEST_LIMIT"]))
-    if env_or_none("SLEEP_SEC"):
-        maybe_set(mod, "SLEEP_SEC", float(os.environ["SLEEP_SEC"]))
+    setattr(
+        mod,
+        "BELOW_8B_FILE",
+        str(DATA_DIR / "a_share_below_8b.csv")
+    )
 
-    return paths
+    setattr(
+        mod,
+        "ST_FILE",
+        str(DATA_DIR / "st_stocks.csv")
+    )
 
+    # 输出文件
+    setattr(
+        mod,
+        "OUTPUT_FILE",
+        str(OUTPUT_DIR / f"candidates_{target_date}.csv")
+    )
 
-def summarize_csv(path: Path) -> str:
-    if not path.exists():
-        return f"- {path.name}: 未生成"
-    try:
-        df = pd.read_csv(path)
-    except Exception as e:
-        return f"- {path.name}: 读取失败: {e}"
-    lines = [f"- {path.name}: {len(df)} 行"]
-    if len(df) > 0:
-        cols = [c for c in ["ticker", "name", "signal_type", "setup_type", "grade_tier", "total_score", "target_date"] if c in df.columns]
-        preview = df[cols].head(10)
-        lines.append(preview.to_string(index=False))
-    return "\n".join(lines)
+    setattr(
+        mod,
+        "DEBUG_FILE",
+        str(OUTPUT_DIR / f"debug_{target_date}.csv")
+    )
 
+    setattr(
+        mod,
+        "FAILED_FILE",
+        str(OUTPUT_DIR / f"failed_{target_date}.csv")
+    )
 
-def main() -> int:
-    target_date = os.environ.get("TARGET_DATE") or sg_today_str()
-    script_rel = os.environ.get("SCAN_SCRIPT_PATH", "scan_strategy.py")
-    script_path = (REPO_ROOT / script_rel).resolve()
+    setattr(
+        mod,
+        "FILTERED_FILE",
+        str(OUTPUT_DIR / f"filtered_{target_date}.csv")
+    )
 
-    subject_prefix = os.environ.get("EMAIL_SUBJECT_PREFIX", "[ThreeBar]")
-    subject = f"{subject_prefix} Daily Scan {target_date}"
+    # 可选参数
+    setattr(
+        mod,
+        "MAX_WORKERS",
+        int(os.getenv("MAX_WORKERS", "8"))
+    )
 
-    if not script_path.exists():
-        body = f"策略脚本不存在: {script_path}"
-        send_email(subject + " FAILED", body)
-        return 1
+    setattr(
+        mod,
+        "TEST_LIMIT",
+        int(os.getenv("TEST_LIMIT", "0"))
+    )
 
-    try:
-        mod = load_strategy_module(script_path)
-        paths = configure_strategy(mod, target_date)
-        if not hasattr(mod, "main"):
-            raise RuntimeError("策略脚本缺少 main() 函数")
-        mod.main()
+    # -------------------------
+    # 检查 main
+    # -------------------------
+    if not hasattr(mod, "main"):
+        raise RuntimeError(
+            "策略脚本中未找到 main() 函数"
+        )
 
-        body_parts = [
-            f"扫描完成：{target_date}",
-            "",
-            summarize_csv(paths["OUTPUT_FILE"]),
-            "",
-            summarize_csv(paths["DEBUG_FILE"]),
-            "",
-            summarize_csv(paths["FAILED_FILE"]),
-        ]
-        body = "\n".join(body_parts)
-        attachments = [p for p in paths.values() if p.exists()]
-        send_email(subject, body, attachments)
-        print(body)
-        return 0
-    except Exception:
-        tb = traceback.format_exc()
-        body = f"扫描失败：{target_date}\n\n{tb}"
+    # -------------------------
+    # 执行策略
+    # -------------------------
+    print("\n开始运行策略...\n")
+
+    mod.main()
+
+    print("\n策略运行完成\n")
+
+    # -------------------------
+    # 输出文件检查
+    # -------------------------
+    output_file = OUTPUT_DIR / f"candidates_{target_date}.csv"
+
+    if output_file.exists():
+
+        print(f"输出文件存在: {output_file}")
+
         try:
-            send_email(subject + " FAILED", body)
-        except Exception:
-            print("发送失败通知邮件也失败了。")
-        print(body)
-        return 1
+            import pandas as pd
+
+            df = pd.read_csv(output_file)
+
+            row_count = len(df)
+
+            email_body = f"""
+Three Bar Play Daily Scan 完成
+
+日期:
+{target_date}
+
+候选股票数量:
+{row_count}
+
+输出文件:
+{output_file.name}
+
+GitHub Actions 自动发送
+"""
+
+        except Exception as e:
+
+            email_body = f"""
+Three Bar Play Daily Scan 完成
+
+日期:
+{target_date}
+
+但读取 CSV 失败:
+{e}
+"""
+
+    else:
+
+        email_body = f"""
+Three Bar Play Daily Scan 完成
+
+日期:
+{target_date}
+
+但未发现输出文件:
+{output_file.name}
+"""
+
+    # -------------------------
+    # 发送邮件
+    # -------------------------
+    print("\n开始发送邮件...\n")
+
+    send_email(
+        subject=f"[ThreeBar] {target_date} Daily Scan",
+        body=email_body,
+        attachments=[str(output_file)] if output_file.exists() else []
+    )
+
+    print("\n邮件发送完成\n")
 
 
+# =========================
+# 程序入口
+# =========================
 if __name__ == "__main__":
-    raise SystemExit(main())
+
+    try:
+
+        main()
+
+    except Exception as e:
+
+        error_msg = traceback.format_exc()
+
+        print(error_msg)
+
+        try:
+
+            send_email(
+                subject="[ThreeBar] Scan Failed",
+                body=f"""
+GitHub Actions 扫描失败
+
+错误信息:
+
+{error_msg}
+"""
+            )
+
+        except Exception as mail_err:
+
+            print(f"发送失败邮件也失败: {mail_err}")
+
+        raise
