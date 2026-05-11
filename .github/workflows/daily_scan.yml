@@ -1,0 +1,55 @@
+name: Daily ThreeBar Scan
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '7 17 * * 1-5'
+      timezone: 'Asia/Singapore'
+
+jobs:
+  run-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run scan and send email
+        env:
+          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_SUBJECT_PREFIX: ${{ secrets.EMAIL_SUBJECT_PREFIX }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SCAN_SCRIPT_PATH: ${{ secrets.SCAN_SCRIPT_PATH }}
+          CODE_FILE: ${{ secrets.CODE_FILE }}
+          BELOW_8B_FILE: ${{ secrets.BELOW_8B_FILE }}
+          ST_FILE: ${{ secrets.ST_FILE }}
+          START_DATE: ${{ secrets.START_DATE }}
+          MAX_WORKERS: ${{ secrets.MAX_WORKERS }}
+          BATCH_START: ${{ secrets.BATCH_START }}
+          BATCH_SIZE: ${{ secrets.BATCH_SIZE }}
+          TEST_LIMIT: ${{ secrets.TEST_LIMIT }}
+        run: python automation/github_entry.py
+
+      - name: Upload outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: threebar-outputs
+          path: outputs/
+          if-no-files-found: warn
