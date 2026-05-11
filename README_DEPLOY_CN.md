@@ -1,102 +1,54 @@
-# GitHub 每天下午 5 点自动跑脚本并发邮件
+# GitHub 每天下午 5:07（新加坡时间）自动跑策略并发邮件
 
-这套模板的目标是：
-- 每个工作日新加坡时间下午 5:07 自动运行
-- 运行你的扫描脚本
-- 把结果 CSV 发到你的邮箱
-- 同时把结果保存为 GitHub Actions artifact
+这个仓库已经内置了**真实可运行**的策略脚本 `scan_strategy.py`，不是空占位文件。
 
-## 你需要放进仓库的文件
+## 你还需要自己补的内容
+1. 把下面三份 CSV 上传到 `data/` 目录：
+   - `data/a_share_codes_for_akshare.csv`
+   - `data/a_share_below_8b.csv`
+   - `data/st_stocks.csv`
+2. 在 GitHub 仓库里配置 Secrets：
+   - `TUSHARE_TOKEN`
+   - `EMAIL_TO`
+   - `SMTP_HOST`
+   - `SMTP_PORT`
+   - `SMTP_USER`
+   - `SMTP_PASSWORD`
+3. 手动运行一次 workflow，确认能收到邮件。
 
-- `scan_strategy.py`：你的策略脚本
-- `data/a_share_codes_for_akshare.csv`
-- `data/a_share_below_8b.csv`
-- `data/st_stocks.csv`
-- `requirements.txt`
-- `automation/github_entry.py`
-- `automation/send_email.py`
-- `.github/workflows/daily_scan.yml`
+## 目录说明
+- `scan_strategy.py`：你的最终版扫描脚本，已改成 GitHub 可运行。
+- `automation/github_entry.py`：GitHub 入口，负责设置 target_date、输出目录、发邮件。
+- `automation/send_email.py`：SMTP 发信。
+- `.github/workflows/daily_scan.yml`：自动化工作流。
+- `outputs/`：运行结果会保存在这里，并上传为 artifact。
 
-## 第一步：把你的脚本接进来
+## 工作流时间
+当前 cron 写的是：
+- `7 9 * * 1-5`
 
-最简单的做法：
-1. 把你现在本地能跑的脚本重命名为 `scan_strategy.py`
-2. 覆盖仓库根目录里的同名占位文件
+GitHub Actions 默认按 UTC 解释，所以等于：
+- **工作日 09:07 UTC**
+- **新加坡时间 17:07**
 
-这个包装器默认会覆盖这些全局变量：
-- `TUSHARE_TOKEN`
-- `TARGET_DATES`
-- `END_DATE`
-- `OUTPUT_FILE`
-- `DEBUG_FILE`
-- `FAILED_FILE`
-- `FILTERED_FILE`
-- `CODE_FILE`
-- `BELOW_8B_FILE`
-- `ST_FILE`
+## 第一次跑建议
+1. 先上传 CSV 到 `data/`
+2. 配好 Secrets
+3. 进入 Actions 页面
+4. 手动运行 `Daily ThreeBar Scan`
+5. 看日志、看邮件、看 artifact
 
-如果你的脚本变量名和这些一致，基本不用再改。
+## 如果你想保留自己的脚本文件名
+也可以把脚本放成别的文件名，比如：
+- `my_strategy.py`
 
-## 第二步：把三份基础数据放到 data 目录
+然后在 GitHub Secrets 里加：
+- `SCAN_SCRIPT_PATH = my_strategy.py`
 
-默认路径：
-- `data/a_share_codes_for_akshare.csv`
-- `data/a_share_below_8b.csv`
-- `data/st_stocks.csv`
+## Gmail 常见配置
+- SMTP_HOST = `smtp.gmail.com`
+- SMTP_PORT = `587`
+- SMTP_USER = 你的 Gmail 地址
+- SMTP_PASSWORD = 你的 App Password
 
-如果你想用别的路径，也可以在 GitHub Secrets 里设置：
-- `CODE_FILE`
-- `BELOW_8B_FILE`
-- `ST_FILE`
-
-## 第三步：配置 GitHub Secrets
-
-仓库 Settings -> Secrets and variables -> Actions
-
-至少添加：
-- `TUSHARE_TOKEN`
-- `EMAIL_TO`
-- `SMTP_HOST`
-- `SMTP_PORT`
-- `SMTP_USER`
-- `SMTP_PASSWORD`
-
-常见 Gmail 配置：
-- `SMTP_HOST = smtp.gmail.com`
-- `SMTP_PORT = 587`
-- `SMTP_USER = 你的 Gmail`
-- `SMTP_PASSWORD = 你的 App Password`
-- `EMAIL_TO = 你的收件邮箱`
-- `EMAIL_FROM = 你的 Gmail`（可选）
-
-## 第四步：手动跑一次测试
-
-进入仓库的 Actions 页，手动运行 `Daily ThreeBar Scan`。
-
-你应该检查三件事：
-1. 是否成功跑完
-2. 是否成功收到邮件
-3. artifact 里是否有 `outputs/` 目录结果
-
-## 第五步：定时运行
-
-工作流已经设置为：
-- 每个工作日
-- 新加坡时间 17:07
-
-如果你要改时间，修改：
-- `.github/workflows/daily_scan.yml`
-
-## 邮件失败时优先检查
-
-1. SMTP 用户名/密码是否正确
-2. Gmail 是否用了 App Password
-3. `EMAIL_TO` 是否正确
-4. 你的脚本是否因为本地 Windows 路径残留而失败
-5. 三份 data CSV 是否已提交到仓库
-
-## 建议
-
-- 第一次先用 `workflow_dispatch` 手动测试
-- 跑通后再依赖定时任务
-- 结果 CSV 建议只看邮件摘要，详细内容去 artifact 下载
+注意：Gmail 这里不要填普通登录密码，要填 **App Password**。
