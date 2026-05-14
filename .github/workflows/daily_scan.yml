@@ -1,40 +1,53 @@
-name: Daily ThreeBar Scan
+name: Daily Three Bar Scan
 
 on:
   workflow_dispatch:
     inputs:
-      target_date:
-        description: "可选，手动指定扫描日期（YYYYMMDD）"
+      target_dates:
+        description: "扫描日期，格式 YYYYMMDD；多个日期用英文逗号分隔，例如 20260513,20260514。留空则默认中国当天日期。"
         required: false
-        type: string
+        default: ""
+      scan_script_path:
+        description: "策略脚本路径，默认 three_bar_play_multi_dates.py"
+        required: false
+        default: "three_bar_play_multi_dates.py"
+
   schedule:
-    - cron: '7 9 * * 1-5'   # 17:07 Asia/Singapore = 09:07 UTC
+    # UTC 时间。北京时间 = UTC + 8
+    # 这里是北京时间 周一到周五 18:30 运行
+    - cron: "30 10 * * 1-5"
 
 jobs:
   run-scan:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+
     env:
-      TARGET_DATE: ${{ inputs.target_date }}
+      # 策略脚本
+      SCAN_SCRIPT_PATH: ${{ github.event.inputs.scan_script_path || 'three_bar_play_multi_dates.py' }}
+
+      # 日期：手动运行时可填；定时运行时为空，由 github_entry.py 自动使用中国当天日期
+      TARGET_DATES: ${{ github.event.inputs.target_dates }}
+
+      # Tushare
       TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-      EMAIL_TO: ${{ secrets.EMAIL_TO }}
-      EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
-      EMAIL_SUBJECT_PREFIX: ${{ secrets.EMAIL_SUBJECT_PREFIX }}
+
+      # 邮件配置
       SMTP_HOST: ${{ secrets.SMTP_HOST }}
       SMTP_PORT: ${{ secrets.SMTP_PORT }}
       SMTP_USER: ${{ secrets.SMTP_USER }}
-      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-      SCAN_SCRIPT_PATH: ${{ secrets.SCAN_SCRIPT_PATH }}
-      CODE_FILE: ${{ secrets.CODE_FILE }}
-      BELOW_8B_FILE: ${{ secrets.BELOW_8B_FILE }}
-      ST_FILE: ${{ secrets.ST_FILE }}
+      SMTP_PASS: ${{ secrets.SMTP_PASS }}
+      MAIL_TO: ${{ secrets.MAIL_TO }}
+
+      # 可选运行参数
       START_DATE: ${{ secrets.START_DATE }}
       MAX_WORKERS: ${{ secrets.MAX_WORKERS }}
+      TEST_LIMIT: ${{ secrets.TEST_LIMIT }}
       BATCH_START: ${{ secrets.BATCH_START }}
       BATCH_SIZE: ${{ secrets.BATCH_SIZE }}
-      TEST_LIMIT: ${{ secrets.TEST_LIMIT }}
       SLEEP_SEC: ${{ secrets.SLEEP_SEC }}
+
+      PYTHONUNBUFFERED: "1"
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -42,20 +55,34 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Show repository files
+        run: |
+          echo "Current directory:"
+          pwd
+          echo "Repository files:"
+          ls -la
+          echo "Automation files:"
+          ls -la automation || true
+          echo "Data files:"
+          ls -la data || true
+
       - name: Run scan and send email
-        run: python automation/github_entry.py
+        run: |
+          python automation/github_entry.py
 
       - name: Upload outputs as artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: threebar-outputs
-          path: outputs/
-          if-no-files-found: warn
+          name: three-bar-scan-outputs
+          path: |
+            outputs/
+            output/
+          if-no-files-found: ignore
