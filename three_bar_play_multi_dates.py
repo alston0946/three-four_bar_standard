@@ -77,12 +77,12 @@ TUSHARE_TOKEN = os.getenv("TUSHARE_TOKEN", "").strip()
 # GitHub Actions 可通过环境变量传入：
 # TARGET_DATES=20260513 或 TARGET_DATES=20260512,20260513
 # 未传入 TARGET_DATES 时，默认使用北京时间今天。
-START_DATE = os.getenv("START_DATE", "20240301").strip()
-MAX_WORKERS = int(os.getenv("MAX_WORKERS", "1"))
-TEST_LIMIT = None if not os.getenv("TEST_LIMIT") else int(os.getenv("TEST_LIMIT"))
-BATCH_START = int(os.getenv("BATCH_START", "0"))
-BATCH_SIZE = int(os.getenv("BATCH_SIZE", "10000"))
-SLEEP_SEC = float(os.getenv("SLEEP_SEC", "0.10"))
+START_DATE = (os.getenv("START_DATE") or "20240301").strip()
+MAX_WORKERS = int((os.getenv("MAX_WORKERS") or "1").strip())
+TEST_LIMIT = None if not (os.getenv("TEST_LIMIT") or "").strip() else int(os.getenv("TEST_LIMIT").strip())
+BATCH_START = int((os.getenv("BATCH_START") or "0").strip())
+BATCH_SIZE = int((os.getenv("BATCH_SIZE") or "10000").strip())
+SLEEP_SEC = float((os.getenv("SLEEP_SEC") or "0.10").strip())
 
 
 # =========================
