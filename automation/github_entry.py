@@ -55,23 +55,26 @@ def split_dates(raw: str):
 def get_target_dates():
     """
     优先读取 TARGET_DATES；
-    如果没有 TARGET_DATES，则读取 TARGET_DATE；
-    如果都没有，则使用新加坡当天日期。
+    如果 TARGET_DATES 为空，则读取 TARGET_DATE；
+    如果 TARGET_DATE 也为空，则使用新加坡当天日期。
     """
-    raw_multi = os.getenv("TARGET_DATES", "").strip()
+
+    raw_multi = (os.getenv("TARGET_DATES") or "").strip()
+    raw_single = (os.getenv("TARGET_DATE") or "").strip()
 
     if raw_multi:
         dates = split_dates(raw_multi)
-    else:
-        raw_single = os.getenv("TARGET_DATE", get_sg_today()).strip()
+    elif raw_single:
         dates = split_dates(raw_single)
+    else:
+        dates = [get_sg_today()]
 
     if not dates:
-        raise RuntimeError("TARGET_DATE / TARGET_DATES 日期格式错误，必须是 YYYYMMDD，例如 20260513")
+        raise RuntimeError(
+            "TARGET_DATE / TARGET_DATES 日期格式错误，必须是 YYYYMMDD，例如 20260513"
+        )
 
     return dates
-
-
 # =========================
 # 可选整数环境变量
 # =========================
