@@ -8,6 +8,7 @@ from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+
 try:
     from send_email import send_email
 except ModuleNotFoundError:
@@ -28,11 +29,11 @@ DATA_DIR = REPO_ROOT / "data"
 
 
 # =========================
-# 新加坡时间日期
+# 中国时间日期
 # =========================
-def get_sg_today():
-    sg_tz = ZoneInfo("Asia/Singapore")
-    now = datetime.now(sg_tz)
+def get_cn_today() -> str:
+    cn_tz = ZoneInfo("Asia/Shanghai")
+    now = datetime.now(cn_tz)
     return now.strftime("%Y%m%d")
 
 
@@ -41,11 +42,13 @@ def get_sg_today():
 # =========================
 def split_dates(raw: str):
     dates = []
+
     if not raw:
         return dates
 
     for part in raw.replace(";", ",").replace("\n", ",").split(","):
         s = part.strip()
+
         if s and s.isdigit() and len(s) == 8:
             dates.append(s)
 
@@ -56,7 +59,7 @@ def get_target_dates():
     """
     优先读取 TARGET_DATES；
     如果 TARGET_DATES 为空，则读取 TARGET_DATE；
-    如果 TARGET_DATE 也为空，则使用新加坡当天日期。
+    如果 TARGET_DATE 也为空，则使用中国当天日期。
     """
 
     raw_multi = (os.getenv("TARGET_DATES") or "").strip()
@@ -67,7 +70,7 @@ def get_target_dates():
     elif raw_single:
         dates = split_dates(raw_single)
     else:
-        dates = [get_sg_today()]
+        dates = [get_cn_today()]
 
     if not dates:
         raise RuntimeError(
@@ -75,8 +78,10 @@ def get_target_dates():
         )
 
     return dates
+
+
 # =========================
-# 可选整数环境变量
+# 环境变量工具
 # =========================
 def get_optional_int_env(name: str):
     raw = os.getenv(name)
@@ -91,11 +96,67 @@ def get_optional_int_env(name: str):
 
     value = int(raw)
 
-    # TEST_LIMIT=0 时容易导致扫描 0 只股票，这里按“不限制”处理
+    # TEST_LIMIT=0 容易导致扫描 0 只股票，这里按不限制处理
     if name == "TEST_LIMIT" and value <= 0:
         return None
 
     return value
+
+
+def get_optional_float_env(name: str):
+    raw = os.getenv(name)
+
+    if raw is None:
+        return None
+
+    raw = raw.strip()
+
+    if raw == "" or raw.lower() in {"none", "null"}:
+        return None
+
+    return float(raw)
+
+
+def get_env_text(name: str, default: str = "") -> str:
+    return (os.getenv(name) or default).strip()
+
+
+# =========================
+# 邮件配置检查
+# =========================
+def email_config_available() -> bool:
+    required = [
+        "SMTP_HOST",
+        "SMTP_PORT",
+        "SMTP_USER",
+        "SMTP_PASS",
+        "MAIL_TO",
+    ]
+
+    missing = [name for name in required if not get_env_text(name)]
+
+    if missing:
+        print(f"邮件配置不完整，跳过发信。缺少: {missing}")
+        return False
+
+    return True
+
+
+def safe_send_email(subject: str, body: str, attachments=None):
+    if attachments is None:
+        attachments = []
+
+    if not email_config_available():
+        return
+
+    try:
+        send_email(
+            subject=subject,
+            body=body,
+            attachments=attachments
+        )
+    except Exception as e:
+        print(f"发送邮件失败: {type(e).__name__}: {e}")
 
 
 # =========================
@@ -104,6 +165,12 @@ def get_optional_int_env(name: str):
 def load_strategy_module(script_path: Path):
     if not script_path.exists():
         raise RuntimeError(f"无法加载策略脚本，文件不存在: {script_path}")
+
+    if script_path.is_dir():
+        raise RuntimeError(f"策略脚本路径指向的是文件夹，不是 .py 文件: {script_path}")
+
+    if script_path.suffix.lower() != ".py":
+        raise RuntimeError(f"策略脚本不是 .py 文件: {script_path}")
 
     spec = importlib.util.spec_from_file_location(
         "scan_strategy_runtime",
@@ -130,14 +197,15 @@ def apply_strategy_config(mod, target_dates, end_date):
     """
 
     # Tushare Token
-    setattr(mod, "TUSHARE_TOKEN", os.getenv("TUSHARE_TOKEN", "").strip())
+    setattr(mod, "TUSHARE_TOKEN", get_env_text("TUSHARE_TOKEN"))
 
     # 日期
     setattr(mod, "TARGET_DATES", list(target_dates))
     setattr(mod, "END_DATE", end_date)
 
-    if os.getenv("START_DATE"):
-        setattr(mod, "START_DATE", os.getenv("START_DATE").strip())
+    start_date = get_env_text("START_DATE")
+    if start_date:
+        setattr(mod, "START_DATE", start_date)
 
     # 数据目录 / 输出目录
     setattr(mod, "DATA_DIR", str(DATA_DIR))
@@ -203,8 +271,9 @@ def apply_strategy_config(mod, target_dates, end_date):
     if batch_size is not None:
         setattr(mod, "BATCH_SIZE", batch_size)
 
-    if os.getenv("SLEEP_SEC"):
-        setattr(mod, "SLEEP_SEC", float(os.getenv("SLEEP_SEC")))
+    sleep_sec = get_optional_float_env("SLEEP_SEC")
+    if sleep_sec is not None:
+        setattr(mod, "SLEEP_SEC", sleep_sec)
 
 
 # =========================
@@ -263,7 +332,8 @@ def pick_candidates_file(files, end_date: str):
                 return p
 
     for p in files:
-        if "candidate" in p.name.lower() or "candidates" in p.name.lower():
+        lower_name = p.name.lower()
+        if "candidate" in lower_name or "candidates" in lower_name:
             return p
 
     return None
@@ -287,10 +357,13 @@ def main():
     # -------------------------
     # 策略脚本路径
     # -------------------------
-    script_name = os.getenv(
+    script_name = get_env_text(
         "SCAN_SCRIPT_PATH",
         "three_bar_play_multi_dates.py"
-    ).strip()
+    )
+
+    if not script_name:
+        script_name = "three_bar_play_multi_dates.py"
 
     script_path = Path(script_name)
 
@@ -309,7 +382,7 @@ def main():
     # -------------------------
     # 基础检查
     # -------------------------
-    if not os.getenv("TUSHARE_TOKEN", "").strip():
+    if not get_env_text("TUSHARE_TOKEN"):
         raise RuntimeError("未检测到 TUSHARE_TOKEN，请在 GitHub Secrets 中配置 TUSHARE_TOKEN")
 
     required_data_files = [
@@ -438,13 +511,13 @@ GitHub Actions 自动发送
 
     attachments = [str(p) for p in output_files if p.exists()]
 
-    send_email(
+    safe_send_email(
         subject=f"[ThreeBar] {end_date} Daily Scan",
         body=email_body,
         attachments=attachments
     )
 
-    print("\n邮件发送完成\n")
+    print("\n邮件处理完成\n")
 
 
 # =========================
@@ -462,21 +535,15 @@ if __name__ == "__main__":
 
         print(error_msg)
 
-        try:
-
-            send_email(
-                subject="[ThreeBar] Scan Failed",
-                body=f"""
+        safe_send_email(
+            subject="[ThreeBar] Scan Failed",
+            body=f"""
 GitHub Actions 扫描失败
 
 错误信息:
 
 {error_msg}
 """
-            )
-
-        except Exception as mail_err:
-
-            print(f"发送失败邮件也失败: {mail_err}")
+        )
 
         raise
