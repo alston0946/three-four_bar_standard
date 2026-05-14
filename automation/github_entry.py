@@ -72,7 +72,7 @@ def main():
     # -------------------------
     script_name = os.getenv(
         "SCAN_SCRIPT_PATH",
-        ""three_bar_play_multi_dates.py""
+        "three_bar_play_multi_dates.py"
     )
 
     script_path = REPO_ROOT / script_name
