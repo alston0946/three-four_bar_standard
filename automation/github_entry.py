@@ -6,7 +6,7 @@ from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from automation.send_email import send_email
+from send_email import send_email
 
 
 # =========================
