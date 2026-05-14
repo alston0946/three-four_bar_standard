@@ -1,0 +1,87 @@
+name: Daily Three Bar Scan
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_dates:
+        description: "扫描日期，格式 YYYYMMDD；多个日期用英文逗号分隔。留空则使用中国当天日期。"
+        required: false
+        default: ""
+      scan_script_path:
+        description: "策略脚本路径，默认 three_bar_play_multi_dates.py"
+        required: false
+        default: "three_bar_play_multi_dates.py"
+
+  schedule:
+    # UTC 时间；北京时间 = UTC + 8
+    # 周一到周五，北京时间 18:30 自动运行
+    - cron: "30 10 * * 1-5"
+
+jobs:
+  run-scan:
+    runs-on: ubuntu-latest
+
+    env:
+      # 主策略脚本。不要放 Secrets，保持固定默认即可。
+      SCAN_SCRIPT_PATH: ${{ github.event.inputs.scan_script_path || 'three_bar_play_multi_dates.py' }}
+
+      # 日期。手动运行可填；定时运行为空时由 github_entry.py 自动取中国当天日期。
+      TARGET_DATES: ${{ github.event.inputs.target_dates || '' }}
+
+      # 你的 Secrets 名称保持不变。
+      TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASS: ${{ secrets.SMTP_PASS }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASS }}
+      MAIL_TO: ${{ secrets.MAIL_TO }}
+
+      # 不再从 Secrets 读取这些可选参数，避免空字符串传给 Python。
+      START_DATE: "20240301"
+      MAX_WORKERS: "1"
+      TEST_LIMIT: ""
+      BATCH_START: "0"
+      BATCH_SIZE: "10000"
+      SLEEP_SEC: "0.10"
+
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Show repository files
+        run: |
+          echo "Current directory:"
+          pwd
+          echo "Repository files:"
+          ls -la
+          echo "Automation files:"
+          ls -la automation || true
+          echo "Data files:"
+          ls -la data || true
+
+      - name: Run scan and send email
+        run: |
+          python automation/github_entry.py
+
+      - name: Upload outputs as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: three-bar-scan-outputs
+          path: |
+            outputs/
+            output/
+          if-no-files-found: ignore
