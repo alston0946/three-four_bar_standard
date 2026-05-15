@@ -35,8 +35,9 @@ jobs:
       SMTP_USER: ${{ secrets.SMTP_USER }}
       SMTP_PASS: ${{ secrets.SMTP_PASS }}
       SMTP_PASSWORD: ${{ secrets.SMTP_PASS }}
-      MAIL_TO: ${{ secrets.MAIL_TO }}
-
+      MAIL_TO: ${{ secrets.EMAIL_TO }}
+      # 兼容旧代码可能读取 EMAIL_TO
+      EMAIL_TO: ${{ secrets.EMAIL_TO }}
       # 不再从 Secrets 读取这些可选参数，避免空字符串传给 Python。
       START_DATE: "20240301"
       MAX_WORKERS: "1"
