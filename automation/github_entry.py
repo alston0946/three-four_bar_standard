@@ -25,6 +25,20 @@ except ModuleNotFoundError:
 
 # =========================
 # 仓库目录
+
+# 兼容邮件变量名
+if not os.getenv("SMTP_PASSWORD") and os.getenv("SMTP_PASS"):
+    os.environ["SMTP_PASSWORD"] = os.getenv("SMTP_PASS")
+
+if not os.getenv("SMTP_PASS") and os.getenv("SMTP_PASSWORD"):
+    os.environ["SMTP_PASS"] = os.getenv("SMTP_PASSWORD")
+
+if not os.getenv("EMAIL_TO") and os.getenv("MAIL_TO"):
+    os.environ["EMAIL_TO"] = os.getenv("MAIL_TO")
+
+if not os.getenv("MAIL_TO") and os.getenv("EMAIL_TO"):
+    os.environ["MAIL_TO"] = os.getenv("EMAIL_TO")
+
 # =========================
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "data"
